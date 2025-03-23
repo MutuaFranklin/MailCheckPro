@@ -1,24 +1,52 @@
 # Email Validation and Verification API
 
-A FastAPI-based REST API that validates and verifies email addresses through multiple checks including format validation, domain MX record verification, and SMTP deliverability testing.
+A comprehensive FastAPI-based REST API that performs thorough email validation and verification through multiple checks including format validation, domain verification, SMTP checks, and blacklist verification.
 
 ## Features
 
-- ✅ Email format validation using regex
-- 🔍 Domain MX record verification
-- 📧 SMTP deliverability check
+- ✅ Strict email format validation
+  - RFC 5322 compliant
+  - Checks for consecutive dots
+  - Length restrictions
+  - Character validation
+  - Local part and domain rules
+
+- 🔍 Domain verification
+  - MX record checking
+  - Domain existence verification
+  - DNS record validation
+
+- 📧 SMTP verification
+  - Mailbox existence check
+  - Catch-all detection
+  - Special handling for major email providers
+  - Enhanced error handling
+
+- 🛡️ Blacklist checking
+  - DNS blacklist (DNSBL) verification
+  - Known spam domain checking
+  - Disposable email detection
+  - Multiple blacklist sources
+
 - ⚡ Asynchronous processing
 - 🛡️ Comprehensive error handling
-- 📝 OpenAPI documentation (Swagger UI)
+- 📝 Interactive Swagger UI documentation
 
 ## API Response Format
-json
+
+```json
 {
-"email_address": "example@example.com",
-"status": "valid/invalid",
-"result": "deliverable/undeliverable",
-"details": "Additional information about the verification"
+  "email_address": "example@domain.com",
+  "syntax_validation": "valid/invalid",
+  "domain_check": "exists/doesn't exist",
+  "smtp_verification": "mailbox exists/mailbox doesn't exist",
+  "blacklisted": true/false,
+  "activity": "active/inactive/unknown",
+  "result": "deliverable/undeliverable",
+  "status": "valid/invalid",
+  "details": "Detailed verification message"
 }
+```
 
 ## Prerequisites
 
@@ -70,72 +98,88 @@ docker run -p 8000:8000 email-validator-api
 ## API Documentation
 
 Once the application is running, you can access:
-- Swagger UI documentation: `http://localhost:8000/docs`
+- Interactive Swagger UI documentation: `http://localhost:8000/docs`
 - ReDoc documentation: `http://localhost:8000/redoc`
 
-## API Endpoints
+## Validation Steps
 
-### Root Endpoint
-- GET `/`
-  - Returns a welcome message and basic API information
+1. **Syntax Validation**
+   - Checks email format against RFC 5322 rules
+   - Validates length restrictions
+   - Checks for invalid characters
+   - Prevents consecutive dots
+   - Validates local part and domain rules
 
-### Email Validation Endpoint
-- GET `/validate-email`
-  - Query Parameter: `email` (required)
-  - Validates and verifies the provided email address
+2. **Domain Check**
+   - Verifies domain existence
+   - Checks MX records
+   - Validates DNS configuration
 
-## Response Status Codes
+3. **SMTP Verification**
+   - Attempts to verify mailbox existence
+   - Special handling for major email providers
+   - Catch-all detection
+   - Enhanced error handling
 
-- `200 OK`: Successful request
-- `400 Bad Request`: Invalid input
-- `500 Internal Server Error`: Server-side error
+4. **Blacklist Check**
+   - Checks against DNS blacklists
+   - Verifies against known spam domains
+   - Checks disposable email domains
+   - Multiple blacklist source verification
 
-## Understanding the Response
+## Response Examples
 
-The API returns different combinations of status and result:
+1. **Valid Email**
+```json
+{
+  "email_address": "user@example.com",
+  "syntax_validation": "valid",
+  "domain_check": "exists",
+  "smtp_verification": "mailbox exists",
+  "blacklisted": false,
+  "activity": "active",
+  "result": "deliverable",
+  "status": "valid",
+  "details": "Email verification complete"
+}
+```
 
-1. **Invalid Format**
-   ```json
-   {
-     "status": "invalid",
-     "result": "undeliverable",
-     "details": "Invalid email format"
-   }
-   ```
+2. **Invalid Format**
+```json
+{
+  "email_address": "invalid..email@domain.com",
+  "syntax_validation": "invalid",
+  "domain_check": "unknown",
+  "smtp_verification": "unknown",
+  "blacklisted": false,
+  "activity": "unknown",
+  "result": "undeliverable",
+  "status": "invalid",
+  "details": "Invalid email format"
+}
+```
 
-2. **No MX Records**
-   ```json
-   {
-     "status": "invalid",
-     "result": "undeliverable",
-     "details": "Domain does not have MX records"
-   }
-   ```
-
-3. **Valid but Undeliverable**
-   ```json
-   {
-     "status": "valid",
-     "result": "undeliverable",
-     "details": "Email exists but is not deliverable"
-   }
-   ```
-
-4. **Valid and Deliverable**
-   ```json
-   {
-     "status": "valid",
-     "result": "deliverable",
-     "details": "Email verification complete"
-   }
-   ```
+3. **Blacklisted Domain**
+```json
+{
+  "email_address": "user@spam.com",
+  "syntax_validation": "valid",
+  "domain_check": "exists",
+  "smtp_verification": "mailbox exists",
+  "blacklisted": true,
+  "activity": "active",
+  "result": "undeliverable",
+  "status": "invalid",
+  "details": "Domain is blacklisted: Known spam domain"
+}
+```
 
 ## Development Notes
 
 - The SMTP verification might not work for all email providers due to anti-spam measures
-- In production, use a valid sender email address
-- Consider implementing rate limiting for production use
+- Major email providers (Gmail, Outlook, etc.) have special handling due to their security measures
 - Some mail servers might return false positives/negatives
+- Consider implementing rate limiting for production use
 
 ## Dependencies
 
@@ -144,4 +188,5 @@ The API returns different combinations of status and result:
 - Pydantic
 - DNSPython
 - Email-validator
+- Requests
 
