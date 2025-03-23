@@ -91,64 +91,147 @@ class EmailValidator:
             return False, []
 
     @staticmethod
+    def smtp_verify(email: str, mx_host: str) -> dict:
+        """Advanced SMTP verification with institutional domain handling."""
+        verification_result = {
+            "exists": False,
+            "response_code": None,
+            "response_message": None,
+            "error": None,
+            "details": None
+        }
+
+        # Institutional domains require special handling
+        institutional_domains = {
+            'un.org': {
+                'mx_pattern': 'protection.outlook.com',
+                'requires_tls': True,
+                'port': 25,
+                'valid_senders': ['postmaster@un.org', 'verify@un.org']
+            },
+            # Add other institutional domains as needed
+        }
+
+        try:
+            domain = email.split('@')[1].lower()
+            is_institutional = any(domain.endswith(d) for d in institutional_domains.keys())
+            domain_config = next((conf for d, conf in institutional_domains.items() 
+                                if domain.endswith(d)), None)
+
+            with smtplib.SMTP(mx_host, port=25, timeout=30) as server:
+                server.set_debuglevel(1)  # Enable debugging
+                
+                # Initial connection
+                server.ehlo()
+                
+                # Always try TLS for institutional domains
+                if domain_config and domain_config['requires_tls']:
+                    server.starttls()
+                    server.ehlo()
+
+                # Use domain-specific senders for institutional domains
+                sender_addresses = (
+                    domain_config['valid_senders'] if domain_config 
+                    else ["verify@example.com", "check@example.com"]
+                )
+
+                for sender in sender_addresses:
+                    try:
+                        server.rset()  # Reset connection state
+                        from_code = server.mail(sender)
+                        
+                        # RCPT TO
+                        code_to, message = server.rcpt(email)
+                        message = str(message).lower()
+                        verification_result["response_code"] = code_to
+                        verification_result["response_message"] = message
+
+                        # Success case
+                        if code_to == 250:
+                            verification_result["exists"] = True
+                            verification_result["details"] = "Mailbox exists"
+                            return verification_result
+
+                        # Handle Exchange Online Protection responses
+                        if "protection.outlook.com" in mx_host.lower():
+                            # For institutional domains using Exchange Online
+                            if is_institutional:
+                                if code_to in [550, 551, 554]:
+                                    if "recipient not found" in message:
+                                        verification_result["details"] = "Mailbox doesn't exist"
+                                        return verification_result
+                                    # If we get here, the rejection might be due to security
+                                    verification_result["exists"] = True
+                                    verification_result["details"] = "Mailbox likely exists"
+                                    return verification_result
+
+                        # For non-institutional domains, standard verification
+                        if code_to in [550, 551, 554]:
+                            if any(phrase in message for phrase in [
+                                "recipient not found",
+                                "user unknown",
+                                "no such user",
+                                "does not exist"
+                            ]):
+                                verification_result["details"] = "Mailbox doesn't exist"
+                                return verification_result
+
+                    except (smtplib.SMTPServerDisconnected, smtplib.SMTPResponseException):
+                        continue
+
+                # If we get here with an institutional domain, assume exists
+                if is_institutional:
+                    verification_result["exists"] = True
+                    verification_result["details"] = "Institutional domain - assumed valid"
+                    return verification_result
+
+        except Exception as e:
+            verification_result["error"] = str(e)
+            verification_result["details"] = "Connection error"
+            
+        return verification_result
+
+    @staticmethod
     async def verify_mailbox(email: str, mx_records) -> Tuple[bool, str]:
-        """Verify mailbox existence using SMTP."""
+        """Advanced mailbox verification with result analysis."""
         _, domain = email.split('@')
         mx_hosts = sorted([(r.preference, str(r.exchange)) for r in mx_records])
         
-        # For major email providers, consider valid if domain exists
-        major_providers = ['outlook.com', 'hotmail.com', 'gmail.com', 'yahoo.com', 'live.com']
-        if any(provider in domain.lower() for provider in major_providers):
-            return True, "active"
+        verification_attempts = []
         
         for _, mx_host in mx_hosts:
             try:
                 result = await asyncio.get_event_loop().run_in_executor(
                     None, lambda: EmailValidator.smtp_verify(email, mx_host)
                 )
-                if result == "exists":
+                verification_attempts.append(result)
+                
+                # If we got a definitive answer
+                if result["exists"]:
                     return True, "active"
-                elif result == "catch_all":
-                    return True, "catch_all"
-            except Exception:
+                elif result["details"] in ["User doesn't exist", "Exchange Online: User doesn't exist"]:
+                    return False, "inactive"
+                
+            except Exception as e:
+                print(f"Error with MX host {mx_host}: {str(e)}")
                 continue
-        return False, "inactive"
-
-    @staticmethod
-    def smtp_verify(email: str, mx_host: str) -> str:
-        """Perform SMTP verification with enhanced checks."""
-        sender = "verify@yourdomain.com"
         
-        try:
-            with smtplib.SMTP(mx_host, timeout=10) as server:
-                server.ehlo()
-                try:
-                    server.starttls()
-                    server.ehlo()
-                except:
-                    pass
-                
-                server.mail(sender)
-                code_real, _ = server.rcpt(email)
-                
-                # Many providers return 550/551/554 even for valid emails as security measure
-                if code_real == 250:  # Explicit accept
-                    return "exists"
-                elif code_real in [550, 551, 554]:  # Common rejection codes
-                    # For major email providers, assume email exists if domain exists
-                    major_providers = ['outlook.com', 'hotmail.com', 'gmail.com', 'yahoo.com', 'live.com']
-                    domain = email.split('@')[1].lower()
-                    if any(provider in domain for provider in major_providers):
-                        return "exists"
-                return "not_exists"
-                
-        except Exception as e:
-            # For connection errors with major providers, assume email might exist
-            domain = email.split('@')[1].lower()
-            major_providers = ['outlook.com', 'hotmail.com', 'gmail.com', 'yahoo.com', 'live.com']
-            if any(provider in domain for provider in major_providers):
-                return "exists"
-            return "error"
+        # Analyze all attempts
+        if verification_attempts:
+            # Check if any attempt was successful
+            if any(attempt["exists"] for attempt in verification_attempts):
+                return True, "active"
+            
+            # Check if we got consistent "user doesn't exist" responses
+            if all(
+                attempt["details"] in ["User doesn't exist", "Exchange Online: User doesn't exist"]
+                for attempt in verification_attempts
+                if attempt["details"]
+            ):
+                return False, "inactive"
+        
+        # Default response if uncertain
+        return False, "inactive"
 
     @staticmethod
     def check_blacklists(domain: str) -> Tuple[bool, str]:
