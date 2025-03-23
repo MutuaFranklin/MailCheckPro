@@ -1,6 +1,10 @@
-# Email Validation and Verification API
+# MailCheckPro
 
 A comprehensive FastAPI-based REST API that performs thorough email validation and verification through multiple checks including format validation, domain verification, SMTP checks, and blacklist verification.
+
+![Python](https://img.shields.io/badge/python-3.9+-blue.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.68.0+-green.svg)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
 ## Features
 
@@ -57,8 +61,8 @@ A comprehensive FastAPI-based REST API that performs thorough email validation a
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd email-validator-api
+git clone https://github.com/yourusername/MailCheckPro.git
+cd MailCheckPro
 ```
 
 2. Create and activate a virtual environment:
@@ -89,10 +93,10 @@ The API will be available at `http://localhost:8000`
 ### Using Docker
 ```bash
 # Build the Docker image
-docker build -t email-validator-api .
+docker build -t mailcheckpro .
 
 # Run the container
-docker run -p 8000:8000 email-validator-api
+docker run -p 8000:8000 mailcheckpro
 ```
 
 ## API Documentation
